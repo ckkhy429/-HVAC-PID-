@@ -9,32 +9,46 @@ st.set_page_config(page_title="서울 지하철 스마트 HVAC 제어 시스템"
 st.title("🚇 서울교통공사 실데이터 기반 스마트 HVAC PID 제어기")
 st.caption("승객 체감 피드백(더워요/추워요) 연동 실시간 PID 냉방 제어 시뮬레이터")
 
+# ---------------------------------------------------------
+# [핵심] 모든 접속자가 공유하는 전역 데이터베이스 (서버 RAM 공유)
+# ---------------------------------------------------------
+@st.cache_resource
+def get_global_data():
+    return {"hot_votes": 0, "cold_votes": 0}
+
+global_data = get_global_data()
+
 # 2. 사이드바: 노선 선택 및 버튼 피드백
 st.sidebar.header("🎛️ 승객 상태 및 노선 설정")
 selected_line = st.sidebar.selectbox("조회할 지하철 노선", [f"{i}호선" for i in range(1, 10)], index=1)
 
-# 세션 상태(버튼 누른 횟수 저장) 초기화
-if 'hot_votes' not in st.session_state:
-    st.session_state.hot_votes = 0
-if 'cold_votes' not in st.session_state:
-    st.session_state.cold_votes = 0
+st.sidebar.subheader("🌐 실시간 전체 승객 피드백")
+st.sidebar.caption("※ 모든 접속자의 투표가 실시간 합산됩니다.")
 
-st.sidebar.subheader("📱 객실 내 승객 피드백")
 col_btn1, col_btn2 = st.sidebar.columns(2)
 with col_btn1:
     if st.button("🥵 더워요"):
-        st.session_state.hot_votes += 1
+        global_data["hot_votes"] += 1
+        st.rerun()
+
 with col_btn2:
     if st.button("🥶 추워요"):
-        st.session_state.cold_votes += 1
+        global_data["cold_votes"] += 1
+        st.rerun()
 
-total_votes = st.session_state.hot_votes + st.session_state.cold_votes
+# 테스트용 초기화 버튼
+if st.sidebar.button("🔄 실시간 투표 데이터 리셋"):
+    global_data["hot_votes"] = 0
+    global_data["cold_votes"] = 0
+    st.rerun()
+
+total_votes = global_data["hot_votes"] + global_data["cold_votes"]
 
 # 3. 투표 결과에 따른 목표 온도(T_target) 보정 가중치 계산
 if total_votes > 0:
-    hot_ratio = st.session_state.hot_votes / total_votes
+    hot_ratio = global_data["hot_votes"] / total_votes
     target_offset = (0.5 - hot_ratio) * 1.0
-    st.sidebar.write(f"투표 현황: 더워요 {st.session_state.hot_votes}표 / 추워요 {st.session_state.cold_votes}표")
+    st.sidebar.write(f"**누적 현황:** 더워요 {global_data['hot_votes']}표 / 추워요 {global_data['cold_votes']}표")
     st.sidebar.progress(hot_ratio, text=f"더워요 비율 ({int(hot_ratio * 100)}%)")
 else:
     hot_ratio = 0.5
@@ -49,7 +63,7 @@ m1, m2, m3, m4 = st.columns(4)
 m1.metric("선택된 노선", selected_line)
 m2.metric("기본 목표 온도", f"{T_TARGET_BASE}°C")
 m3.metric("승객 피드백 보정 온도", f"{T_TARGET:.2f}°C", delta=f"{target_offset:.2f}°C")
-m4.metric("총 참여 승객 수", f"{total_votes} 명")
+m4.metric("전체 누적 참여자 수", f"{total_votes} 명")
 
 # 4. PID 제어 시뮬레이션 연산
 hours = np.arange(5, 25)
